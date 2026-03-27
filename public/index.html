@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Porras</title>
-    <link rel="stylesheet" href="styles.css?v=20260327b" />
+    <link rel="stylesheet" href="styles.css?v=20260327c" />
   </head>
   <body>
     <div class="bg"></div>
@@ -115,6 +115,21 @@
       </section>
     </main>
 
-    <script src="app.js?v=20260327b"></script>
+    <div id="editBetModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="editBetTitle">
+      <div class="modal-card">
+        <h3 id="editBetTitle">Editar apuesta</h3>
+        <form id="editBetForm">
+          <input id="editBetUser" type="text" readonly />
+          <input id="editBetCount" type="number" min="0" placeholder="Nueva predicción" required />
+          <div class="modal-actions">
+            <button type="button" id="closeEditBetModal" class="mini-btn">Cancelar</button>
+            <button type="submit">Guardar cambios</button>
+          </div>
+        </form>
+        <p id="editBetStatus" class="muted"></p>
+      </div>
+    </div>
+
+    <script src="app.js?v=20260327c"></script>
   </body>
 </html>

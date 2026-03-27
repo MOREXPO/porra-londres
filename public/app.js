@@ -42,6 +42,13 @@ const deletePoolBtn = document.getElementById('deletePoolBtn');
 const resultForm = document.getElementById('resultForm');
 const realCountInput = document.getElementById('realCount');
 
+const editBetModalEl = document.getElementById('editBetModal');
+const editBetForm = document.getElementById('editBetForm');
+const editBetUserInput = document.getElementById('editBetUser');
+const editBetCountInput = document.getElementById('editBetCount');
+const closeEditBetModalBtn = document.getElementById('closeEditBetModal');
+const editBetStatusEl = document.getElementById('editBetStatus');
+
 const state = {
   pools: [],
   currentPoolId: null,
@@ -49,6 +56,7 @@ const state = {
   adminToken: localStorage.getItem('adminToken') || '',
   adminEmail: localStorage.getItem('adminEmail') || '',
   activeView: localStorage.getItem('activeView') || 'porras',
+  editingBetUser: null,
 };
 
 if (!adminEmailInput.value) {
@@ -86,6 +94,22 @@ function setAdminSession(token, email) {
   if (!logged) {
     adminStatusEl.textContent = 'Inicia sesión para crear, editar, borrar porras y publicar resultados.';
   }
+}
+
+function openEditBetModal(user, prediction) {
+  state.editingBetUser = user;
+  editBetUserInput.value = user;
+  editBetCountInput.value = prediction;
+  editBetStatusEl.textContent = '';
+  editBetModalEl.classList.remove('hidden');
+  setTimeout(() => editBetCountInput.focus(), 0);
+}
+
+function closeEditBetModal() {
+  state.editingBetUser = null;
+  editBetForm.reset();
+  editBetStatusEl.textContent = '';
+  editBetModalEl.classList.add('hidden');
 }
 
 async function api(url, options = {}) {
@@ -284,11 +308,7 @@ async function loadBoard() {
 
   boardEl.querySelectorAll('.edit-bet-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
-      document.getElementById('name').value = btn.dataset.user;
-      document.getElementById('count').value = btn.dataset.prediction;
-      betSubmitBtn.textContent = 'Actualizar apuesta';
-      statusEl.textContent = `✏️ Editando apuesta de ${btn.dataset.user}`;
-      document.getElementById('count').focus();
+      openEditBetModal(btn.dataset.user, btn.dataset.prediction);
     });
   });
 
@@ -377,6 +397,17 @@ tabButtons.forEach((btn) => {
   });
 });
 
+closeEditBetModalBtn.addEventListener('click', closeEditBetModal);
+editBetModalEl.addEventListener('click', (e) => {
+  if (e.target === editBetModalEl) closeEditBetModal();
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !editBetModalEl.classList.contains('hidden')) {
+    closeEditBetModal();
+  }
+});
+
 betForm.addEventListener('submit', async (e) => {
   e.preventDefault();
 
@@ -400,6 +431,34 @@ betForm.addEventListener('submit', async (e) => {
     await loadPools(state.currentPoolId);
   } catch (err) {
     statusEl.textContent = err.message || 'No se pudo guardar la apuesta.';
+  }
+});
+
+editBetForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+
+  if (!state.currentPoolId || !state.editingBetUser) {
+    editBetStatusEl.textContent = 'No hay apuesta seleccionada para editar.';
+    return;
+  }
+
+  const predictedCount = Number(editBetCountInput.value);
+  if (Number.isNaN(predictedCount) || predictedCount < 0) {
+    editBetStatusEl.textContent = 'Predicción inválida.';
+    return;
+  }
+
+  try {
+    await api(`/api/pools/${state.currentPoolId}/bet`, {
+      method: 'POST',
+      body: { name: state.editingBetUser, predictedCount },
+    });
+
+    statusEl.textContent = `✅ Apuesta actualizada: ${state.editingBetUser}`;
+    closeEditBetModal();
+    await loadPools(state.currentPoolId);
+  } catch (err) {
+    editBetStatusEl.textContent = err.message || 'No se pudo actualizar la apuesta.';
   }
 });
 
