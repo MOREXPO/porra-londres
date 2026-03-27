@@ -5,11 +5,16 @@ const boardEl = document.getElementById('leaderboard');
 const chartEl = document.getElementById('chart');
 const podiumEl = document.getElementById('podium');
 const podioHintEl = document.getElementById('podioHint');
-
-const poolTitleEl = document.getElementById('poolTitle');
-const poolSelectEl = document.getElementById('poolSelect');
-const reloadPoolsBtn = document.getElementById('reloadPoolsBtn');
+const selectedPoolTitleEl = document.getElementById('selectedPoolTitle');
+const selectedPoolMetaEl = document.getElementById('selectedPoolMeta');
+const poolsListEl = document.getElementById('poolsList');
 const poolStatusEl = document.getElementById('poolStatus');
+
+const menuButtons = document.querySelectorAll('.menu-btn');
+const views = {
+  porras: document.getElementById('view-porras'),
+  admin: document.getElementById('view-admin'),
+};
 
 const tabButtons = document.querySelectorAll('.tab-btn');
 const tabPanels = {
@@ -29,6 +34,8 @@ const adminStatusEl = document.getElementById('adminStatus');
 
 const createPoolForm = document.getElementById('createPoolForm');
 const newPoolNameInput = document.getElementById('newPoolName');
+const adminPoolSelectEl = document.getElementById('adminPoolSelect');
+const adminRefreshBtn = document.getElementById('adminRefreshBtn');
 const editPoolForm = document.getElementById('editPoolForm');
 const editPoolNameInput = document.getElementById('editPoolName');
 const deletePoolBtn = document.getElementById('deletePoolBtn');
@@ -38,12 +45,25 @@ const realCountInput = document.getElementById('realCount');
 const state = {
   pools: [],
   currentPoolId: null,
+  adminPoolId: null,
   adminToken: localStorage.getItem('adminToken') || '',
   adminEmail: localStorage.getItem('adminEmail') || '',
+  activeView: localStorage.getItem('activeView') || 'porras',
 };
 
 if (!adminEmailInput.value) {
   adminEmailInput.value = state.adminEmail || 'iagomoreda1910@gmail.com';
+}
+
+function setActiveView(viewName) {
+  const view = views[viewName] ? viewName : 'porras';
+  state.activeView = view;
+  localStorage.setItem('activeView', view);
+
+  menuButtons.forEach((btn) => btn.classList.toggle('active', btn.dataset.view === view));
+  Object.entries(views).forEach(([name, el]) => {
+    el.classList.toggle('active', name === view);
+  });
 }
 
 function setAdminSession(token, email) {
@@ -64,7 +84,7 @@ function setAdminSession(token, email) {
   adminWhoEl.textContent = state.adminEmail || '';
 
   if (!logged) {
-    adminStatusEl.textContent = 'Inicia sesión para crear/editar porras y publicar resultados.';
+    adminStatusEl.textContent = 'Inicia sesión para crear, editar, borrar porras y publicar resultados.';
   }
 }
 
@@ -104,25 +124,66 @@ function currentPool() {
   return state.pools.find((p) => p.id === state.currentPoolId) || null;
 }
 
-function renderPoolOptions() {
-  poolSelectEl.innerHTML = state.pools
-    .map((p) => `<option value="${p.id}">${p.name}</option>`)
-    .join('');
+function currentAdminPool() {
+  return state.pools.find((p) => p.id === state.adminPoolId) || null;
 }
 
-function setCurrentPool(poolId) {
+function selectPool(poolId) {
   const id = Number(poolId);
   if (!Number.isInteger(id)) return;
 
   state.currentPoolId = id;
   localStorage.setItem('selectedPoolId', String(id));
-  poolSelectEl.value = String(id);
 
-  const pool = currentPool();
-  if (pool) {
-    poolTitleEl.textContent = pool.name;
-    poolStatusEl.textContent = `Apuestas: ${pool.betCount} · Resultado: ${pool.result ?? 'pendiente'}`;
-    editPoolNameInput.value = pool.name;
+  if (!state.adminPoolId || !state.pools.some((p) => p.id === state.adminPoolId)) {
+    state.adminPoolId = id;
+  }
+
+  renderPoolsList();
+  syncAdminPoolSelect();
+}
+
+function renderPoolsList() {
+  if (!state.pools.length) {
+    poolsListEl.innerHTML = '<p class="muted">No hay porras disponibles.</p>';
+    return;
+  }
+
+  poolsListEl.innerHTML = state.pools
+    .map((pool) => {
+      const activeClass = pool.id === state.currentPoolId ? 'pool-pill active' : 'pool-pill';
+      return `
+        <button class="${activeClass}" type="button" data-pool-id="${pool.id}">
+          <span class="pool-pill-title">${pool.name}</span>
+          <span class="pool-pill-meta">Apuestas: ${pool.betCount} · Resultado: ${pool.result ?? 'pendiente'}</span>
+        </button>
+      `;
+    })
+    .join('');
+
+  poolsListEl.querySelectorAll('[data-pool-id]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      selectPool(btn.dataset.poolId);
+      await loadBoard();
+    });
+  });
+}
+
+function syncAdminPoolSelect() {
+  adminPoolSelectEl.innerHTML = state.pools
+    .map((pool) => `<option value="${pool.id}">${pool.name}</option>`)
+    .join('');
+
+  if (!state.adminPoolId && state.currentPoolId) {
+    state.adminPoolId = state.currentPoolId;
+  }
+
+  if (state.adminPoolId) {
+    adminPoolSelectEl.value = String(state.adminPoolId);
+    const pool = currentAdminPool();
+    if (pool) {
+      editPoolNameInput.value = pool.name;
+    }
   }
 }
 
@@ -149,7 +210,7 @@ function renderChart(entries) {
 
 function renderPodium(entries, result) {
   if (result === null) {
-    podioHintEl.textContent = 'Publica primero el resultado real para calcular quién se acercó más.';
+    podioHintEl.textContent = 'Aún no hay resultado real publicado para esta porra.';
     podiumEl.innerHTML = '';
     return;
   }
@@ -177,16 +238,24 @@ function renderPodium(entries, result) {
 }
 
 async function loadBoard() {
-  if (!state.currentPoolId) return;
-
-  const data = await api(`/api/pools/${state.currentPoolId}/leaderboard`);
-
-  if (data.pool?.name) {
-    poolTitleEl.textContent = data.pool.name;
+  if (!state.currentPoolId) {
+    selectedPoolTitleEl.textContent = 'Sin porra seleccionada';
+    selectedPoolMetaEl.textContent = 'Selecciona una porra para ver sus apuestas.';
+    boardEl.innerHTML = '<p>No hay porra activa.</p>';
+    chartEl.innerHTML = '<p class="muted">No hay datos para el gráfico.</p>';
+    podiumEl.innerHTML = '';
+    podioHintEl.textContent = '';
+    return;
   }
 
+  const data = await api(`/api/pools/${state.currentPoolId}/leaderboard`);
+  const pool = data.pool;
+
+  selectedPoolTitleEl.textContent = pool?.name || 'Porra';
+  selectedPoolMetaEl.textContent = `Resultado real: ${data.result ?? 'pendiente'} · Apuestas: ${data.entries.length}`;
+
   if (!data.entries.length) {
-    boardEl.innerHTML = '<p>Aún no hay apuestas.</p>';
+    boardEl.innerHTML = '<p>Aún no hay apuestas en esta porra.</p>';
     chartEl.innerHTML = '<p class="muted">No hay datos para el gráfico.</p>';
     podiumEl.innerHTML = '';
     podioHintEl.textContent = 'Sin apuestas todavía.';
@@ -196,8 +265,6 @@ async function loadBoard() {
 
   boardEl.innerHTML = `
     <div class="week">
-      <h3>Resultado real: <b>${data.result ?? 'pendiente'}</b></h3>
-      <p>${data.winner ? `🏆 Ganador provisional/final: <b>${data.winner}</b>` : 'Aún sin resultado publicado.'}</p>
       ${data.entries
         .map(
           (e) => `
@@ -251,22 +318,29 @@ async function loadPools(preferredPoolId) {
     state.pools = data.pools || [];
 
     if (!state.pools.length) {
-      poolTitleEl.textContent = 'Sin porras';
+      state.currentPoolId = null;
+      state.adminPoolId = null;
       poolStatusEl.textContent = 'No hay porras creadas todavía.';
-      boardEl.innerHTML = '<p>No hay porras disponibles.</p>';
-      chartEl.innerHTML = '<p class="muted">No hay datos para el gráfico.</p>';
-      podiumEl.innerHTML = '';
-      podioHintEl.textContent = 'Crea una porra para empezar.';
+      renderPoolsList();
+      syncAdminPoolSelect();
+      await loadBoard();
       return;
     }
 
-    renderPoolOptions();
-
     const stored = Number(localStorage.getItem('selectedPoolId'));
-    const candidate = Number(preferredPoolId) || stored || data.defaultPoolId || state.pools[0].id;
+    const candidate = Number(preferredPoolId) || state.currentPoolId || stored || data.defaultPoolId || state.pools[0].id;
     const exists = state.pools.some((p) => p.id === candidate);
-    setCurrentPool(exists ? candidate : state.pools[0].id);
 
+    selectPool(exists ? candidate : state.pools[0].id);
+
+    if (!state.adminPoolId || !state.pools.some((p) => p.id === state.adminPoolId)) {
+      state.adminPoolId = state.currentPoolId;
+    }
+
+    poolStatusEl.textContent = `Total porras: ${state.pools.length}`;
+
+    renderPoolsList();
+    syncAdminPoolSelect();
     await loadBoard();
   } catch (err) {
     poolStatusEl.textContent = err.message;
@@ -287,13 +361,20 @@ async function validateAdminSession() {
   }
 }
 
-poolSelectEl.addEventListener('change', async () => {
-  setCurrentPool(poolSelectEl.value);
-  await loadBoard();
+menuButtons.forEach((btn) => {
+  btn.addEventListener('click', () => {
+    setActiveView(btn.dataset.view);
+  });
 });
 
-reloadPoolsBtn.addEventListener('click', async () => {
-  await loadPools(state.currentPoolId);
+tabButtons.forEach((btn) => {
+  btn.addEventListener('click', () => {
+    tabButtons.forEach((b) => b.classList.remove('active'));
+    Object.values(tabPanels).forEach((p) => p.classList.remove('active'));
+
+    btn.classList.add('active');
+    tabPanels[btn.dataset.tab].classList.add('active');
+  });
 });
 
 betForm.addEventListener('submit', async (e) => {
@@ -325,18 +406,18 @@ betForm.addEventListener('submit', async (e) => {
 adminLoginForm.addEventListener('submit', async (e) => {
   e.preventDefault();
 
-  const email = adminEmailInput.value.trim();
-  const password = adminPasswordInput.value;
-
   try {
     const data = await api('/api/admin/login', {
       method: 'POST',
-      body: { email, password },
+      body: {
+        email: adminEmailInput.value.trim(),
+        password: adminPasswordInput.value,
+      },
     });
 
     setAdminSession(data.token, data.admin.email);
     adminPasswordInput.value = '';
-    adminLoginStatusEl.textContent = '✅ Sesión de administrador iniciada.';
+    adminLoginStatusEl.textContent = '✅ Login correcto.';
   } catch (err) {
     adminLoginStatusEl.textContent = err.message;
   }
@@ -346,29 +427,36 @@ adminLogoutBtn.addEventListener('click', async () => {
   try {
     await api('/api/admin/logout', { method: 'POST', auth: true });
   } catch {
-    // noop
+    // ignore
   }
   setAdminSession('', '');
+});
+
+adminPoolSelectEl.addEventListener('change', () => {
+  state.adminPoolId = Number(adminPoolSelectEl.value);
+  const pool = currentAdminPool();
+  if (pool) {
+    editPoolNameInput.value = pool.name;
+  }
+});
+
+adminRefreshBtn.addEventListener('click', async () => {
+  await loadPools(state.currentPoolId);
 });
 
 createPoolForm.addEventListener('submit', async (e) => {
   e.preventDefault();
 
-  const name = newPoolNameInput.value.trim();
-  if (!name) {
-    adminStatusEl.textContent = 'Escribe un nombre para la porra.';
-    return;
-  }
-
   try {
     const data = await api('/api/pools', {
       method: 'POST',
       auth: true,
-      body: { name },
+      body: { name: newPoolNameInput.value.trim() },
     });
 
     newPoolNameInput.value = '';
     adminStatusEl.textContent = `✅ Porra creada: ${data.pool.name}`;
+    state.adminPoolId = data.pool.id;
     await loadPools(data.pool.id);
   } catch (err) {
     adminStatusEl.textContent = err.message;
@@ -378,47 +466,37 @@ createPoolForm.addEventListener('submit', async (e) => {
 editPoolForm.addEventListener('submit', async (e) => {
   e.preventDefault();
 
-  if (!state.currentPoolId) {
-    adminStatusEl.textContent = 'No hay porra seleccionada.';
-    return;
-  }
-
-  const name = editPoolNameInput.value.trim();
-  if (!name) {
-    adminStatusEl.textContent = 'El nombre no puede estar vacío.';
+  if (!state.adminPoolId) {
+    adminStatusEl.textContent = 'Selecciona una porra a administrar.';
     return;
   }
 
   try {
-    await api(`/api/pools/${state.currentPoolId}`, {
+    await api(`/api/pools/${state.adminPoolId}`, {
       method: 'PATCH',
       auth: true,
-      body: { name },
+      body: { name: editPoolNameInput.value.trim() },
     });
 
-    adminStatusEl.textContent = '✅ Nombre de porra actualizado.';
-    await loadPools(state.currentPoolId);
+    adminStatusEl.textContent = '✅ Nombre actualizado.';
+    await loadPools(state.adminPoolId);
   } catch (err) {
     adminStatusEl.textContent = err.message;
   }
 });
 
 deletePoolBtn.addEventListener('click', async () => {
-  if (!state.currentPoolId) {
-    adminStatusEl.textContent = 'No hay porra seleccionada.';
+  if (!state.adminPoolId) {
+    adminStatusEl.textContent = 'Selecciona una porra a borrar.';
     return;
   }
 
-  const pool = currentPool();
-  const confirmed = window.confirm(`¿Seguro que quieres eliminar la porra "${pool?.name || state.currentPoolId}"?`);
+  const pool = currentAdminPool();
+  const confirmed = window.confirm(`¿Eliminar la porra "${pool?.name || state.adminPoolId}"?`);
   if (!confirmed) return;
 
   try {
-    await api(`/api/pools/${state.currentPoolId}`, {
-      method: 'DELETE',
-      auth: true,
-    });
-
+    await api(`/api/pools/${state.adminPoolId}`, { method: 'DELETE', auth: true });
     adminStatusEl.textContent = '🗑️ Porra eliminada.';
     await loadPools();
   } catch (err) {
@@ -429,29 +507,28 @@ deletePoolBtn.addEventListener('click', async () => {
 resultForm.addEventListener('submit', async (e) => {
   e.preventDefault();
 
-  if (!state.currentPoolId) {
-    adminStatusEl.textContent = 'No hay porra seleccionada.';
+  if (!state.adminPoolId) {
+    adminStatusEl.textContent = 'Selecciona una porra para publicar resultado.';
     return;
   }
 
-  const realCount = Number(realCountInput.value);
-
   try {
-    await api(`/api/pools/${state.currentPoolId}/result`, {
+    await api(`/api/pools/${state.adminPoolId}/result`, {
       method: 'POST',
       auth: true,
-      body: { realCount },
+      body: { realCount: Number(realCountInput.value) },
     });
 
-    adminStatusEl.textContent = '✅ Resultado real actualizado.';
+    adminStatusEl.textContent = '✅ Resultado real publicado.';
     resultForm.reset();
-    await loadPools(state.currentPoolId);
+    await loadPools(state.adminPoolId);
   } catch (err) {
     adminStatusEl.textContent = err.message;
   }
 });
 
 (async () => {
+  setActiveView(state.activeView);
   setAdminSession(state.adminToken, state.adminEmail);
   await validateAdminSession();
   await loadPools();
