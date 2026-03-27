@@ -6,47 +6,44 @@ async function loadBoard() {
   const res = await fetch('/api/leaderboard');
   const data = await res.json();
 
-  if (!data.length) {
+  if (!data.entries.length) {
     boardEl.innerHTML = '<p>Aún no hay apuestas.</p>';
     return;
   }
 
-  boardEl.innerHTML = data
-    .map(
-      (w) => `
-      <div class="week">
-        <h3>${w.week}</h3>
-        <p>Resultado real: <b>${w.result ?? 'pendiente'}</b> ${w.winner ? `· Ganador: <b>${w.winner}</b>` : ''}</p>
-        ${w.entries
-          .map(
-            (e) => `
-              <div class="entry">
-                <span>${e.user}</span>
-                <span>${e.prediction} ${e.error === null ? '' : `(error: ${e.error})`}</span>
-              </div>
-            `
-          )
-          .join('')}
-      </div>
-    `
-    )
-    .join('');
+  boardEl.innerHTML = `
+    <div class="week">
+      <h3>Resultado real: <b>${data.result ?? 'pendiente'}</b></h3>
+      <p>${data.winner ? `🏆 Ganador provisional/final: <b>${data.winner}</b>` : 'Aún sin resultado publicado.'}</p>
+      ${data.entries
+        .map(
+          (e) => `
+            <div class="entry">
+              <span>${e.user}</span>
+              <span>${e.prediction} veces · €${Number(e.euros).toFixed(2)} ${e.error === null ? '' : `(error: ${e.error})`}</span>
+            </div>
+          `
+        )
+        .join('')}
+    </div>
+  `;
 }
 
 betForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const name = document.getElementById('name').value.trim();
-  const weekLabel = document.getElementById('week').value.trim();
   const predictedCount = Number(document.getElementById('count').value);
+  const euros = Number(document.getElementById('euros').value);
 
   const res = await fetch('/api/bet', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, weekLabel, predictedCount }),
+    body: JSON.stringify({ name, predictedCount, euros }),
   });
 
   if (!res.ok) {
-    statusEl.textContent = 'No se pudo guardar la apuesta.';
+    const err = await res.json().catch(() => ({}));
+    statusEl.textContent = err.error || 'No se pudo guardar la apuesta.';
     return;
   }
 
