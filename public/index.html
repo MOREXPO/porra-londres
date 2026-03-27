@@ -40,6 +40,17 @@
 
         <div id="tab-podio" class="tab-panel">
           <h2>Podio visual</h2>
+
+          <div class="card admin-card">
+            <h3>Publicar resultado real</h3>
+            <form id="resultForm" class="result-form">
+              <input id="realCount" type="number" min="0" placeholder="Resultado real" required />
+              <input id="adminKey" type="password" placeholder="Clave admin" required />
+              <button type="submit">Guardar resultado</button>
+            </form>
+            <p id="resultStatus" class="muted"></p>
+          </div>
+
           <p id="podioHint" class="muted"></p>
           <div id="podium" class="podium"></div>
         </div>

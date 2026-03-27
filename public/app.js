@@ -11,6 +11,12 @@ const tabPanels = {
   podio: document.getElementById('tab-podio'),
 };
 
+const resultForm = document.getElementById('resultForm');
+const resultStatusEl = document.getElementById('resultStatus');
+const adminKeyInput = document.getElementById('adminKey');
+
+adminKeyInput.value = localStorage.getItem('porraAdminKey') || '';
+
 tabButtons.forEach((btn) => {
   btn.addEventListener('click', () => {
     tabButtons.forEach((b) => b.classList.remove('active'));
@@ -126,6 +132,40 @@ betForm.addEventListener('submit', async (e) => {
 
   statusEl.textContent = '✅ Apuesta guardada.';
   betForm.reset();
+  await loadBoard();
+});
+
+resultForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+
+  const realCount = Number(document.getElementById('realCount').value);
+  const adminKey = adminKeyInput.value.trim();
+
+  if (!adminKey) {
+    resultStatusEl.textContent = 'Introduce la clave admin.';
+    return;
+  }
+
+  localStorage.setItem('porraAdminKey', adminKey);
+
+  const res = await fetch('/api/result', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-admin-key': adminKey,
+    },
+    body: JSON.stringify({ realCount }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    resultStatusEl.textContent = err.error || 'No se pudo guardar el resultado.';
+    return;
+  }
+
+  resultStatusEl.textContent = '✅ Resultado real actualizado.';
+  resultForm.reset();
+  adminKeyInput.value = adminKey;
   await loadBoard();
 });
 
