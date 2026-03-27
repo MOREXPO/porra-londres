@@ -26,8 +26,23 @@
       </section>
 
       <section class="card">
-        <h2>Clasificación</h2>
-        <div id="leaderboard" class="board"></div>
+        <div class="tabs">
+          <button class="tab-btn active" data-tab="clasificacion">Clasificación + gráfico</button>
+          <button class="tab-btn" data-tab="podio">Podio de los más cercanos</button>
+        </div>
+
+        <div id="tab-clasificacion" class="tab-panel active">
+          <h2>Clasificación</h2>
+          <div id="leaderboard" class="board"></div>
+          <h3>Gráfico de predicciones</h3>
+          <div id="chart" class="chart"></div>
+        </div>
+
+        <div id="tab-podio" class="tab-panel">
+          <h2>Podio visual</h2>
+          <p id="podioHint" class="muted"></p>
+          <div id="podium" class="podium"></div>
+        </div>
       </section>
     </main>
 
