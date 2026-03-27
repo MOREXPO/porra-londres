@@ -52,14 +52,14 @@ form {
   gap: 10px;
 }
 
-input, button {
+input, button, select {
   border-radius: 10px;
   border: 1px solid var(--line);
   padding: 12px;
   font-size: 15px;
 }
 
-input {
+input, select {
   background: rgba(30, 41, 59, 0.9);
   color: var(--text);
 }
@@ -73,6 +73,22 @@ button {
 }
 
 #status { min-height: 20px; color: var(--accent); }
+
+.pool-row {
+  display: grid;
+  grid-template-columns: 120px 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.pool-row label {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.pool-create-form {
+  margin-top: 12px;
+}
 
 .tabs {
   display: flex;
@@ -196,3 +212,9 @@ button {
 }
 
 .muted { color: var(--muted); }
+
+@media (max-width: 720px) {
+  .pool-row {
+    grid-template-columns: 1fr;
+  }
+}

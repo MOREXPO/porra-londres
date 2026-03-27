@@ -3,22 +3,38 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Porra de Manu</title>
+    <title>Porras</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <div class="bg"></div>
     <main class="container">
       <header>
-        <h1>Porra: ¿cuántas veces roban a Manu en Londres?</h1>
-        <p>Cada persona hace su predicción.</p>
+        <h1 id="poolTitle">Porras</h1>
+        <p id="poolSubtitle">Gestiona varias porras, cada una con sus apuestas y gráficos.</p>
       </header>
+
+      <section class="card">
+        <h2>Administrar porras</h2>
+        <div class="pool-row">
+          <label for="poolSelect">Porra activa</label>
+          <select id="poolSelect"></select>
+          <button id="reloadPoolsBtn" type="button">Recargar</button>
+        </div>
+
+        <form id="createPoolForm" class="pool-create-form">
+          <input id="newPoolName" placeholder="Nombre nueva porra" required maxlength="120" />
+          <input id="createPoolAdminKey" type="password" placeholder="Clave admin" required />
+          <button type="submit">Crear porra</button>
+        </form>
+        <p id="poolStatus" class="muted"></p>
+      </section>
 
       <section class="card">
         <h2>Tu apuesta</h2>
         <form id="betForm">
           <input id="name" placeholder="Tu nombre" required maxlength="30" />
-          <input id="count" type="number" placeholder="Veces que le roban a Manu" min="0" required />
+          <input id="count" type="number" placeholder="Tu predicción" min="0" required />
           <button type="submit">Guardar apuesta</button>
         </form>
         <p id="status"></p>
@@ -41,7 +57,7 @@
           <h2>Podio visual</h2>
 
           <div class="card admin-card">
-            <h3>Publicar resultado real</h3>
+            <h3>Publicar resultado real (porra activa)</h3>
             <form id="resultForm" class="result-form">
               <input id="realCount" type="number" min="0" placeholder="Resultado real" required />
               <input id="adminKey" type="password" placeholder="Clave admin" required />
