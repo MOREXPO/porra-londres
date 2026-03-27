@@ -102,7 +102,7 @@ async function loadBoard() {
             <div class="entry">
               <span>${e.user}</span>
               <span class="entry-main">
-                <span>${e.prediction} veces ${e.error > 0 ? `(error: ${e.error})` : ''}</span>
+                <span>${e.prediction} veces</span>
                 <button
                   class="mini-btn edit-bet-btn"
                   data-user="${e.user}"
