@@ -72,7 +72,7 @@ function renderPodium(entries, result) {
           <div class="podium-rank">${medals[i]}</div>
           <div class="podium-name">${e.user}</div>
           <div>Predicción: <b>${e.prediction}</b></div>
-          <div>Error: <b>${e.error}</b></div>
+          <div>${e.error === 0 ? '✅ Acierto total' : `Error: <b>${e.error}</b>`}</div>
         </div>
       `
     )
@@ -102,7 +102,7 @@ async function loadBoard() {
             <div class="entry">
               <span>${e.user}</span>
               <span class="entry-main">
-                <span>${e.prediction} veces ${e.error === null ? '' : `(error: ${e.error})`}</span>
+                <span>${e.prediction} veces ${e.error > 0 ? `(error: ${e.error})` : ''}</span>
                 <button
                   class="mini-btn edit-bet-btn"
                   data-user="${e.user}"
