@@ -1,0 +1,13 @@
+{
+  "name": "porra-londres",
+  "version": "1.0.0",
+  "description": "Porra colaborativa de incidencias en Londres",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.2.0",
+    "express": "^4.21.2"
+  }
+}
