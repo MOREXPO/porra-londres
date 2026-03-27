@@ -88,6 +88,7 @@ async function loadBoard() {
     chartEl.innerHTML = '<p class="muted">No hay datos para el gráfico.</p>';
     podiumEl.innerHTML = '';
     podioHintEl.textContent = 'Sin apuestas todavía.';
+    betSubmitBtn.textContent = 'Guardar apuesta';
     return;
   }
 
@@ -110,6 +111,13 @@ async function loadBoard() {
                 >
                   Editar
                 </button>
+                <button
+                  class="mini-btn delete-bet-btn"
+                  data-user="${e.user}"
+                  type="button"
+                >
+                  Eliminar
+                </button>
               </span>
             </div>
           `
@@ -125,6 +133,29 @@ async function loadBoard() {
       betSubmitBtn.textContent = 'Actualizar apuesta';
       statusEl.textContent = `✏️ Editando apuesta de ${btn.dataset.user}`;
       document.getElementById('count').focus();
+    });
+  });
+
+  boardEl.querySelectorAll('.delete-bet-btn').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const user = btn.dataset.user;
+      const confirmed = window.confirm(`¿Eliminar la apuesta de ${user}?`);
+      if (!confirmed) return;
+
+      const res = await fetch(`/api/bet/${encodeURIComponent(user)}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        statusEl.textContent = err.error || 'No se pudo eliminar la apuesta.';
+        return;
+      }
+
+      if (document.getElementById('name').value.trim() === user) {
+        betForm.reset();
+        betSubmitBtn.textContent = 'Guardar apuesta';
+      }
+
+      statusEl.textContent = `🗑️ Apuesta eliminada: ${user}`;
+      await loadBoard();
     });
   });
 

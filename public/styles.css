@@ -129,6 +129,11 @@ button {
   border-radius: 8px;
 }
 
+.delete-bet-btn {
+  background: linear-gradient(90deg, #f43f5e, #fb7185);
+  color: white;
+}
+
 .chart {
   margin-top: 12px;
   display: grid;

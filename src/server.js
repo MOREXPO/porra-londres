@@ -64,6 +64,11 @@ const upsertBet = db.prepare(`
   DO UPDATE SET predicted_count = excluded.predicted_count, created_at = CURRENT_TIMESTAMP
 `);
 
+const deleteBetByUserName = db.prepare(`
+  DELETE FROM bets
+  WHERE user_id = (SELECT id FROM users WHERE name = ?)
+`);
+
 const getResult = db.prepare('SELECT real_count FROM result WHERE id = 1');
 const upsertResult = db.prepare(`
   INSERT INTO result (id, real_count)
@@ -122,6 +127,21 @@ app.post('/api/bet', (req, res) => {
   upsertBet.run(user.id, Number(predictedCount));
 
   return res.json({ ok: true });
+});
+
+app.delete('/api/bet/:name', (req, res) => {
+  const name = (req.params.name || '').trim();
+
+  if (!name) {
+    return res.status(400).json({ error: 'Nombre inválido' });
+  }
+
+  const result = deleteBetByUserName.run(name);
+  if (!result.changes) {
+    return res.status(404).json({ error: 'No se encontró apuesta para ese nombre' });
+  }
+
+  return res.json({ ok: true, deleted: name });
 });
 
 app.post('/api/result', (req, res) => {
