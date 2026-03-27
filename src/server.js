@@ -32,12 +32,13 @@ db.exec(`
   );
 `);
 
-const betColumns = db.prepare(`PRAGMA table_info(bets)`).all().map((c) => c.name);
+// Compatibilidad con versiones previas de la base de datos
+const betColumns = db.prepare('PRAGMA table_info(bets)').all().map((c) => c.name);
 if (!betColumns.includes('euros')) {
-  db.exec(`ALTER TABLE bets ADD COLUMN euros REAL NOT NULL DEFAULT 1`);
+  db.exec('ALTER TABLE bets ADD COLUMN euros REAL NOT NULL DEFAULT 1');
 }
 if (betColumns.includes('week_label')) {
-  db.exec(`UPDATE bets SET predicted_count = COALESCE(predicted_count, 0) WHERE predicted_count IS NULL`);
+  db.exec('UPDATE bets SET predicted_count = COALESCE(predicted_count, 0) WHERE predicted_count IS NULL');
 }
 
 const createUser = db.prepare('INSERT OR IGNORE INTO users(name) VALUES (?)');
@@ -57,10 +58,10 @@ if (!ensureUniqueIndex) {
 }
 
 const upsertBet = db.prepare(`
-  INSERT INTO bets (user_id, predicted_count, euros)
-  VALUES (?, ?, ?)
+  INSERT INTO bets (user_id, predicted_count)
+  VALUES (?, ?)
   ON CONFLICT(user_id)
-  DO UPDATE SET predicted_count = excluded.predicted_count, euros = excluded.euros, created_at = CURRENT_TIMESTAMP
+  DO UPDATE SET predicted_count = excluded.predicted_count, created_at = CURRENT_TIMESTAMP
 `);
 
 const getResult = db.prepare('SELECT real_count FROM result WHERE id = 1');
@@ -75,7 +76,7 @@ const getBoard = db.prepare(`
   SELECT
     u.name,
     b.predicted_count,
-    b.euros,
+    b.created_at,
     r.real_count
   FROM bets b
   JOIN users u ON u.id = b.user_id
@@ -92,14 +93,14 @@ app.get('/api/leaderboard', (_req, res) => {
     .map((r) => ({
       user: r.name,
       prediction: r.predicted_count,
-      euros: r.euros,
+      createdAt: r.created_at,
       error: real ? Math.abs(r.predicted_count - real.real_count) : null,
     }))
     .sort((a, b) => {
-      if (a.error === null && b.error === null) return b.euros - a.euros;
+      if (a.error === null && b.error === null) return a.createdAt.localeCompare(b.createdAt);
       if (a.error === null) return 1;
       if (b.error === null) return -1;
-      return a.error - b.error || b.euros - a.euros;
+      return a.error - b.error || a.createdAt.localeCompare(b.createdAt);
     });
 
   res.json({
@@ -110,20 +111,15 @@ app.get('/api/leaderboard', (_req, res) => {
 });
 
 app.post('/api/bet', (req, res) => {
-  const { name, predictedCount, euros } = req.body;
+  const { name, predictedCount } = req.body;
 
-  if (!name || Number.isNaN(Number(predictedCount)) || Number.isNaN(Number(euros))) {
+  if (!name || Number.isNaN(Number(predictedCount))) {
     return res.status(400).json({ error: 'Datos incompletos' });
-  }
-
-  const amount = Number(euros);
-  if (amount <= 0) {
-    return res.status(400).json({ error: 'La apuesta en euros debe ser mayor que 0' });
   }
 
   createUser.run(name.trim());
   const user = getUser.get(name.trim());
-  upsertBet.run(user.id, Number(predictedCount), amount);
+  upsertBet.run(user.id, Number(predictedCount));
 
   return res.json({ ok: true });
 });

@@ -59,10 +59,10 @@ function renderPodium(entries, result) {
 
   const top = entries
     .filter((e) => e.error !== null)
-    .sort((a, b) => a.error - b.error || b.euros - a.euros)
+    .sort((a, b) => a.error - b.error || a.createdAt.localeCompare(b.createdAt))
     .slice(0, 3);
 
-  podioHintEl.textContent = top.length ? 'Top 3 por menor error (desempate por mayor apuesta en €).' : 'Aún no hay apuestas válidas.';
+  podioHintEl.textContent = top.length ? 'Top 3 por menor error.' : 'Aún no hay apuestas válidas.';
 
   const medals = ['🥇', '🥈', '🥉'];
   podiumEl.innerHTML = top
@@ -73,7 +73,6 @@ function renderPodium(entries, result) {
           <div class="podium-name">${e.user}</div>
           <div>Predicción: <b>${e.prediction}</b></div>
           <div>Error: <b>${e.error}</b></div>
-          <div>Apuesta: <b>€${Number(e.euros).toFixed(2)}</b></div>
         </div>
       `
     )
@@ -102,12 +101,11 @@ async function loadBoard() {
             <div class="entry">
               <span>${e.user}</span>
               <span class="entry-main">
-                <span>${e.prediction} veces · €${Number(e.euros).toFixed(2)} ${e.error === null ? '' : `(error: ${e.error})`}</span>
+                <span>${e.prediction} veces ${e.error === null ? '' : `(error: ${e.error})`}</span>
                 <button
                   class="mini-btn edit-bet-btn"
                   data-user="${e.user}"
                   data-prediction="${e.prediction}"
-                  data-euros="${Number(e.euros)}"
                   type="button"
                 >
                   Editar
@@ -124,10 +122,9 @@ async function loadBoard() {
     btn.addEventListener('click', () => {
       document.getElementById('name').value = btn.dataset.user;
       document.getElementById('count').value = btn.dataset.prediction;
-      document.getElementById('euros').value = btn.dataset.euros;
       betSubmitBtn.textContent = 'Actualizar apuesta';
       statusEl.textContent = `✏️ Editando apuesta de ${btn.dataset.user}`;
-      document.getElementById('euros').focus();
+      document.getElementById('count').focus();
     });
   });
 
@@ -139,12 +136,11 @@ betForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const name = document.getElementById('name').value.trim();
   const predictedCount = Number(document.getElementById('count').value);
-  const euros = Number(document.getElementById('euros').value);
 
   const res = await fetch('/api/bet', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, predictedCount, euros }),
+    body: JSON.stringify({ name, predictedCount }),
   });
 
   if (!res.ok) {
