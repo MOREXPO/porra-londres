@@ -1,17 +1,15 @@
 const betForm = document.getElementById('betForm');
+const betSubmitBtn = betForm.querySelector('button[type="submit"]');
 const statusEl = document.getElementById('status');
 const boardEl = document.getElementById('leaderboard');
 const chartEl = document.getElementById('chart');
 const podiumEl = document.getElementById('podium');
 const podioHintEl = document.getElementById('podioHint');
-const betSubmitBtn = betForm.querySelector('button[type="submit"]');
 
 const poolTitleEl = document.getElementById('poolTitle');
 const poolSelectEl = document.getElementById('poolSelect');
-const poolStatusEl = document.getElementById('poolStatus');
 const reloadPoolsBtn = document.getElementById('reloadPoolsBtn');
-const createPoolForm = document.getElementById('createPoolForm');
-const createPoolAdminKeyInput = document.getElementById('createPoolAdminKey');
+const poolStatusEl = document.getElementById('poolStatus');
 
 const tabButtons = document.querySelectorAll('.tab-btn');
 const tabPanels = {
@@ -19,40 +17,86 @@ const tabPanels = {
   podio: document.getElementById('tab-podio'),
 };
 
+const adminLoginBox = document.getElementById('adminLoginBox');
+const adminPanel = document.getElementById('adminPanel');
+const adminLoginForm = document.getElementById('adminLoginForm');
+const adminEmailInput = document.getElementById('adminEmail');
+const adminPasswordInput = document.getElementById('adminPassword');
+const adminLoginStatusEl = document.getElementById('adminLoginStatus');
+const adminWhoEl = document.getElementById('adminWho');
+const adminLogoutBtn = document.getElementById('adminLogoutBtn');
+const adminStatusEl = document.getElementById('adminStatus');
+
+const createPoolForm = document.getElementById('createPoolForm');
+const newPoolNameInput = document.getElementById('newPoolName');
+const editPoolForm = document.getElementById('editPoolForm');
+const editPoolNameInput = document.getElementById('editPoolName');
+const deletePoolBtn = document.getElementById('deletePoolBtn');
 const resultForm = document.getElementById('resultForm');
-const resultStatusEl = document.getElementById('resultStatus');
-const adminKeyInput = document.getElementById('adminKey');
+const realCountInput = document.getElementById('realCount');
 
 const state = {
   pools: [],
   currentPoolId: null,
+  adminToken: localStorage.getItem('adminToken') || '',
+  adminEmail: localStorage.getItem('adminEmail') || '',
 };
 
-function saveAdminKey(key) {
-  localStorage.setItem('porraAdminKey', key);
-  adminKeyInput.value = key;
-  createPoolAdminKeyInput.value = key;
+if (!adminEmailInput.value) {
+  adminEmailInput.value = state.adminEmail || 'iagomoreda1910@gmail.com';
 }
 
-const storedAdminKey = localStorage.getItem('porraAdminKey') || '';
-saveAdminKey(storedAdminKey);
+function setAdminSession(token, email) {
+  state.adminToken = token || '';
+  state.adminEmail = email || '';
 
-tabButtons.forEach((btn) => {
-  btn.addEventListener('click', () => {
-    tabButtons.forEach((b) => b.classList.remove('active'));
-    Object.values(tabPanels).forEach((p) => p.classList.remove('active'));
+  if (state.adminToken) {
+    localStorage.setItem('adminToken', state.adminToken);
+    localStorage.setItem('adminEmail', state.adminEmail);
+  } else {
+    localStorage.removeItem('adminToken');
+    localStorage.removeItem('adminEmail');
+  }
 
-    btn.classList.add('active');
-    tabPanels[btn.dataset.tab].classList.add('active');
+  const logged = Boolean(state.adminToken);
+  adminLoginBox.classList.toggle('hidden', logged);
+  adminPanel.classList.toggle('hidden', !logged);
+  adminWhoEl.textContent = state.adminEmail || '';
+
+  if (!logged) {
+    adminStatusEl.textContent = 'Inicia sesión para crear/editar porras y publicar resultados.';
+  }
+}
+
+async function api(url, options = {}) {
+  const { method = 'GET', body, auth = false } = options;
+  const headers = {};
+
+  if (body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  if (auth && state.adminToken) {
+    headers.Authorization = `Bearer ${state.adminToken}`;
+  }
+
+  const res = await fetch(url, {
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
   });
-});
 
-async function fetchJson(url, options = {}) {
-  const res = await fetch(url, options);
   const data = await res.json().catch(() => ({}));
+
+  if (res.status === 401 && auth) {
+    setAdminSession('', '');
+    throw new Error(data.error || 'Sesión de administrador expirada.');
+  }
+
   if (!res.ok) {
     throw new Error(data.error || `Error ${res.status}`);
   }
+
   return data;
 }
 
@@ -67,48 +111,18 @@ function renderPoolOptions() {
 }
 
 function setCurrentPool(poolId) {
-  const parsed = Number(poolId);
-  if (!Number.isInteger(parsed)) return;
+  const id = Number(poolId);
+  if (!Number.isInteger(id)) return;
 
-  state.currentPoolId = parsed;
-  localStorage.setItem('selectedPoolId', String(parsed));
-  poolSelectEl.value = String(parsed);
+  state.currentPoolId = id;
+  localStorage.setItem('selectedPoolId', String(id));
+  poolSelectEl.value = String(id);
 
   const pool = currentPool();
   if (pool) {
     poolTitleEl.textContent = pool.name;
     poolStatusEl.textContent = `Apuestas: ${pool.betCount} · Resultado: ${pool.result ?? 'pendiente'}`;
-  }
-}
-
-async function loadPools(preferredPoolId) {
-  try {
-    const data = await fetchJson('/api/pools');
-    state.pools = data.pools || [];
-
-    if (!state.pools.length) {
-      poolSelectEl.innerHTML = '';
-      state.currentPoolId = null;
-      poolTitleEl.textContent = 'Sin porras';
-      poolStatusEl.textContent = 'No hay porras creadas todavía.';
-      boardEl.innerHTML = '<p>No hay porras disponibles.</p>';
-      chartEl.innerHTML = '<p class="muted">No hay datos para el gráfico.</p>';
-      podiumEl.innerHTML = '';
-      podioHintEl.textContent = 'Crea una porra para empezar.';
-      return;
-    }
-
-    renderPoolOptions();
-
-    const stored = Number(localStorage.getItem('selectedPoolId'));
-    const candidate = Number(preferredPoolId) || state.currentPoolId || stored || data.defaultPoolId || state.pools[0].id;
-
-    const exists = state.pools.some((p) => p.id === candidate);
-    setCurrentPool(exists ? candidate : state.pools[0].id);
-
-    await loadBoard();
-  } catch (err) {
-    poolStatusEl.textContent = err.message;
+    editPoolNameInput.value = pool.name;
   }
 }
 
@@ -119,7 +133,6 @@ function renderChart(entries) {
   }
 
   const maxPrediction = Math.max(...entries.map((e) => e.prediction), 1);
-
   chartEl.innerHTML = entries
     .map((e) => {
       const pct = Math.max(6, Math.round((e.prediction / maxPrediction) * 100));
@@ -166,7 +179,8 @@ function renderPodium(entries, result) {
 async function loadBoard() {
   if (!state.currentPoolId) return;
 
-  const data = await fetchJson(`/api/pools/${state.currentPoolId}/leaderboard`);
+  const data = await api(`/api/pools/${state.currentPoolId}/leaderboard`);
+
   if (data.pool?.name) {
     poolTitleEl.textContent = data.pool.name;
   }
@@ -191,21 +205,8 @@ async function loadBoard() {
               <span>${e.user}</span>
               <span class="entry-main">
                 <span>${e.prediction} veces</span>
-                <button
-                  class="mini-btn edit-bet-btn"
-                  data-user="${e.user}"
-                  data-prediction="${e.prediction}"
-                  type="button"
-                >
-                  Editar
-                </button>
-                <button
-                  class="mini-btn delete-bet-btn"
-                  data-user="${e.user}"
-                  type="button"
-                >
-                  Eliminar
-                </button>
+                <button class="mini-btn edit-bet-btn" data-user="${e.user}" data-prediction="${e.prediction}" type="button">Editar</button>
+                <button class="mini-btn delete-bet-btn" data-user="${e.user}" type="button">Eliminar</button>
               </span>
             </div>
           `
@@ -231,23 +232,59 @@ async function loadBoard() {
       if (!confirmed) return;
 
       try {
-        await fetchJson(`/api/pools/${state.currentPoolId}/bet/${encodeURIComponent(user)}`, { method: 'DELETE' });
-
-        if (document.getElementById('name').value.trim() === user) {
-          betForm.reset();
-          betSubmitBtn.textContent = 'Guardar apuesta';
-        }
-
+        await api(`/api/pools/${state.currentPoolId}/bet/${encodeURIComponent(user)}`, { method: 'DELETE' });
         statusEl.textContent = `🗑️ Apuesta eliminada: ${user}`;
         await loadPools(state.currentPoolId);
       } catch (err) {
-        statusEl.textContent = err.message || 'No se pudo eliminar la apuesta.';
+        statusEl.textContent = err.message;
       }
     });
   });
 
   renderChart(data.entries);
   renderPodium(data.entries, data.result);
+}
+
+async function loadPools(preferredPoolId) {
+  try {
+    const data = await api('/api/pools');
+    state.pools = data.pools || [];
+
+    if (!state.pools.length) {
+      poolTitleEl.textContent = 'Sin porras';
+      poolStatusEl.textContent = 'No hay porras creadas todavía.';
+      boardEl.innerHTML = '<p>No hay porras disponibles.</p>';
+      chartEl.innerHTML = '<p class="muted">No hay datos para el gráfico.</p>';
+      podiumEl.innerHTML = '';
+      podioHintEl.textContent = 'Crea una porra para empezar.';
+      return;
+    }
+
+    renderPoolOptions();
+
+    const stored = Number(localStorage.getItem('selectedPoolId'));
+    const candidate = Number(preferredPoolId) || stored || data.defaultPoolId || state.pools[0].id;
+    const exists = state.pools.some((p) => p.id === candidate);
+    setCurrentPool(exists ? candidate : state.pools[0].id);
+
+    await loadBoard();
+  } catch (err) {
+    poolStatusEl.textContent = err.message;
+  }
+}
+
+async function validateAdminSession() {
+  if (!state.adminToken) {
+    setAdminSession('', '');
+    return;
+  }
+
+  try {
+    const data = await api('/api/admin/me', { auth: true });
+    setAdminSession(state.adminToken, data.admin.email);
+  } catch {
+    setAdminSession('', '');
+  }
 }
 
 poolSelectEl.addEventListener('change', async () => {
@@ -257,43 +294,6 @@ poolSelectEl.addEventListener('change', async () => {
 
 reloadPoolsBtn.addEventListener('click', async () => {
   await loadPools(state.currentPoolId);
-});
-
-createPoolForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-
-  const name = String(document.getElementById('newPoolName').value || '').trim();
-  const adminKey = String(createPoolAdminKeyInput.value || '').trim();
-
-  if (!name) {
-    poolStatusEl.textContent = 'Escribe un nombre para la porra.';
-    return;
-  }
-
-  if (!adminKey) {
-    poolStatusEl.textContent = 'Introduce la clave admin para crear porras.';
-    return;
-  }
-
-  try {
-    const data = await fetchJson('/api/pools', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-admin-key': adminKey,
-      },
-      body: JSON.stringify({ name }),
-    });
-
-    saveAdminKey(adminKey);
-    createPoolForm.reset();
-    createPoolAdminKeyInput.value = adminKey;
-    poolStatusEl.textContent = `✅ Porra creada: ${data.pool.name}`;
-
-    await loadPools(data.pool.id);
-  } catch (err) {
-    poolStatusEl.textContent = err.message;
-  }
 });
 
 betForm.addEventListener('submit', async (e) => {
@@ -308,10 +308,9 @@ betForm.addEventListener('submit', async (e) => {
   const predictedCount = Number(document.getElementById('count').value);
 
   try {
-    await fetchJson(`/api/pools/${state.currentPoolId}/bet`, {
+    await api(`/api/pools/${state.currentPoolId}/bet`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, predictedCount }),
+      body: { name, predictedCount },
     });
 
     statusEl.textContent = '✅ Apuesta guardada.';
@@ -323,40 +322,137 @@ betForm.addEventListener('submit', async (e) => {
   }
 });
 
-resultForm.addEventListener('submit', async (e) => {
+adminLoginForm.addEventListener('submit', async (e) => {
   e.preventDefault();
 
-  if (!state.currentPoolId) {
-    resultStatusEl.textContent = 'No hay porra seleccionada.';
-    return;
+  const email = adminEmailInput.value.trim();
+  const password = adminPasswordInput.value;
+
+  try {
+    const data = await api('/api/admin/login', {
+      method: 'POST',
+      body: { email, password },
+    });
+
+    setAdminSession(data.token, data.admin.email);
+    adminPasswordInput.value = '';
+    adminLoginStatusEl.textContent = '✅ Sesión de administrador iniciada.';
+  } catch (err) {
+    adminLoginStatusEl.textContent = err.message;
   }
+});
 
-  const realCount = Number(document.getElementById('realCount').value);
-  const adminKey = adminKeyInput.value.trim();
+adminLogoutBtn.addEventListener('click', async () => {
+  try {
+    await api('/api/admin/logout', { method: 'POST', auth: true });
+  } catch {
+    // noop
+  }
+  setAdminSession('', '');
+});
 
-  if (!adminKey) {
-    resultStatusEl.textContent = 'Introduce la clave admin.';
+createPoolForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+
+  const name = newPoolNameInput.value.trim();
+  if (!name) {
+    adminStatusEl.textContent = 'Escribe un nombre para la porra.';
     return;
   }
 
   try {
-    await fetchJson(`/api/pools/${state.currentPoolId}/result`, {
+    const data = await api('/api/pools', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-admin-key': adminKey,
-      },
-      body: JSON.stringify({ realCount }),
+      auth: true,
+      body: { name },
     });
 
-    saveAdminKey(adminKey);
-    resultStatusEl.textContent = '✅ Resultado real actualizado.';
-    resultForm.reset();
-    adminKeyInput.value = adminKey;
-    await loadPools(state.currentPoolId);
+    newPoolNameInput.value = '';
+    adminStatusEl.textContent = `✅ Porra creada: ${data.pool.name}`;
+    await loadPools(data.pool.id);
   } catch (err) {
-    resultStatusEl.textContent = err.message || 'No se pudo guardar el resultado.';
+    adminStatusEl.textContent = err.message;
   }
 });
 
-loadPools();
+editPoolForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+
+  if (!state.currentPoolId) {
+    adminStatusEl.textContent = 'No hay porra seleccionada.';
+    return;
+  }
+
+  const name = editPoolNameInput.value.trim();
+  if (!name) {
+    adminStatusEl.textContent = 'El nombre no puede estar vacío.';
+    return;
+  }
+
+  try {
+    await api(`/api/pools/${state.currentPoolId}`, {
+      method: 'PATCH',
+      auth: true,
+      body: { name },
+    });
+
+    adminStatusEl.textContent = '✅ Nombre de porra actualizado.';
+    await loadPools(state.currentPoolId);
+  } catch (err) {
+    adminStatusEl.textContent = err.message;
+  }
+});
+
+deletePoolBtn.addEventListener('click', async () => {
+  if (!state.currentPoolId) {
+    adminStatusEl.textContent = 'No hay porra seleccionada.';
+    return;
+  }
+
+  const pool = currentPool();
+  const confirmed = window.confirm(`¿Seguro que quieres eliminar la porra "${pool?.name || state.currentPoolId}"?`);
+  if (!confirmed) return;
+
+  try {
+    await api(`/api/pools/${state.currentPoolId}`, {
+      method: 'DELETE',
+      auth: true,
+    });
+
+    adminStatusEl.textContent = '🗑️ Porra eliminada.';
+    await loadPools();
+  } catch (err) {
+    adminStatusEl.textContent = err.message;
+  }
+});
+
+resultForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+
+  if (!state.currentPoolId) {
+    adminStatusEl.textContent = 'No hay porra seleccionada.';
+    return;
+  }
+
+  const realCount = Number(realCountInput.value);
+
+  try {
+    await api(`/api/pools/${state.currentPoolId}/result`, {
+      method: 'POST',
+      auth: true,
+      body: { realCount },
+    });
+
+    adminStatusEl.textContent = '✅ Resultado real actualizado.';
+    resultForm.reset();
+    await loadPools(state.currentPoolId);
+  } catch (err) {
+    adminStatusEl.textContent = err.message;
+  }
+});
+
+(async () => {
+  setAdminSession(state.adminToken, state.adminEmail);
+  await validateAdminSession();
+  await loadPools();
+})();

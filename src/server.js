@@ -1,17 +1,21 @@
 const express = require('express');
 const Database = require('better-sqlite3');
 const path = require('path');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 8787;
-const ADMIN_KEY = process.env.ADMIN_KEY || 'cambia-esta-clave';
 const DEFAULT_POOL_NAME = 'Porra: ¿cuántas veces roban a Manu en Londres?';
 const DEFAULT_POOL_SLUG = 'manu-londres';
+const DEFAULT_ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'iagomoreda1910@gmail.com';
+const DEFAULT_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Jisei0no0ku';
+const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 días
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 const db = new Database(path.join(__dirname, '..', 'data.db'));
+db.pragma('foreign_keys = ON');
 
 // Tablas antiguas (compatibilidad/migración)
 db.exec(`
@@ -36,7 +40,6 @@ db.exec(`
   );
 `);
 
-// Compatibilidad con versiones previas de "bets"
 const betColumns = db.prepare('PRAGMA table_info(bets)').all().map((c) => c.name);
 if (!betColumns.includes('euros')) {
   db.exec('ALTER TABLE bets ADD COLUMN euros REAL NOT NULL DEFAULT 1');
@@ -74,7 +77,7 @@ db.exec(`
     predicted_count INTEGER NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(pool_id, user_id),
-    FOREIGN KEY(pool_id) REFERENCES pools(id),
+    FOREIGN KEY(pool_id) REFERENCES pools(id) ON DELETE CASCADE,
     FOREIGN KEY(user_id) REFERENCES users(id)
   );
 
@@ -82,7 +85,23 @@ db.exec(`
     pool_id INTEGER PRIMARY KEY,
     real_count INTEGER NOT NULL,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(pool_id) REFERENCES pools(id)
+    FOREIGN KEY(pool_id) REFERENCES pools(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS admin_users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT UNIQUE NOT NULL,
+    password_salt TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS admin_sessions (
+    token TEXT PRIMARY KEY,
+    admin_id INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(admin_id) REFERENCES admin_users(id) ON DELETE CASCADE
   );
 `);
 
@@ -98,7 +117,7 @@ function slugify(text) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
-    .slice(0, 50) || 'porra';
+    .slice(0, 60) || 'porra';
 }
 
 function generateUniqueSlug(name) {
@@ -110,6 +129,37 @@ function generateUniqueSlug(name) {
     i += 1;
   }
   return candidate;
+}
+
+function hashPassword(password, salt) {
+  return crypto.scryptSync(password, salt, 64).toString('hex');
+}
+
+function timingSafeEqualHex(a, b) {
+  const aa = Buffer.from(String(a), 'hex');
+  const bb = Buffer.from(String(b), 'hex');
+  if (aa.length !== bb.length) return false;
+  return crypto.timingSafeEqual(aa, bb);
+}
+
+const getAdminByEmail = db.prepare('SELECT * FROM admin_users WHERE email = ?');
+const insertAdminUser = db.prepare('INSERT INTO admin_users(email, password_salt, password_hash) VALUES (?, ?, ?)');
+const updateAdminPassword = db.prepare('UPDATE admin_users SET password_salt = ?, password_hash = ? WHERE id = ?');
+
+function ensureDefaultAdmin() {
+  const email = DEFAULT_ADMIN_EMAIL.trim().toLowerCase();
+  const password = DEFAULT_ADMIN_PASSWORD;
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = hashPassword(password, salt);
+
+  const existing = getAdminByEmail.get(email);
+  if (!existing) {
+    insertAdminUser.run(email, salt, hash);
+    return;
+  }
+
+  // Garantiza que el usuario pedido por ti exista con esa clave actual
+  updateAdminPassword.run(salt, hash, existing.id);
 }
 
 function getDefaultPool() {
@@ -160,10 +210,12 @@ function migrateLegacyDataToDefaultPool(defaultPoolId) {
   }
 }
 
+ensureDefaultAdmin();
 const defaultPool = getDefaultPool();
-migrateLegacyDataToDefaultPool(defaultPool.id);
+const defaultPoolId = defaultPool.id;
+migrateLegacyDataToDefaultPool(defaultPoolId);
 
-// Queries
+// Queries de negocio
 const createUser = db.prepare('INSERT OR IGNORE INTO users(name) VALUES (?)');
 const getUser = db.prepare('SELECT * FROM users WHERE name = ?');
 const getPoolById = db.prepare('SELECT id, name, slug, created_at FROM pools WHERE id = ?');
@@ -181,6 +233,7 @@ const listPools = db.prepare(`
 `);
 
 const createPoolStmt = db.prepare('INSERT INTO pools(name, slug) VALUES (?, ?)');
+const updatePoolNameStmt = db.prepare('UPDATE pools SET name = ? WHERE id = ?');
 
 const upsertPoolBet = db.prepare(`
   INSERT INTO pool_bets (pool_id, user_id, predicted_count)
@@ -215,14 +268,58 @@ const getPoolBoard = db.prepare(`
   WHERE pb.pool_id = ?
 `);
 
+const deletePoolCascadeTx = db.transaction((poolId) => {
+  db.prepare('DELETE FROM pool_results WHERE pool_id = ?').run(poolId);
+  db.prepare('DELETE FROM pool_bets WHERE pool_id = ?').run(poolId);
+  db.prepare('DELETE FROM pools WHERE id = ?').run(poolId);
+});
+
+// Queries de auth admin
+const cleanupExpiredSessions = db.prepare('DELETE FROM admin_sessions WHERE expires_at <= ?');
+const createAdminSession = db.prepare('INSERT INTO admin_sessions(token, admin_id, expires_at) VALUES (?, ?, ?)');
+const getAdminSessionByToken = db.prepare(`
+  SELECT s.token, s.admin_id, s.expires_at, a.email
+  FROM admin_sessions s
+  JOIN admin_users a ON a.id = s.admin_id
+  WHERE s.token = ? AND s.expires_at > ?
+`);
+const deleteAdminSessionByToken = db.prepare('DELETE FROM admin_sessions WHERE token = ?');
+
 function parsePoolId(raw) {
   const n = Number(raw);
   if (!Number.isInteger(n) || n <= 0) return null;
   return n;
 }
 
-function isAdmin(req) {
-  return req.header('x-admin-key') === ADMIN_KEY;
+function extractToken(req) {
+  const authHeader = req.header('authorization') || '';
+  if (authHeader.toLowerCase().startsWith('bearer ')) {
+    return authHeader.slice(7).trim();
+  }
+  const fallback = req.header('x-admin-token');
+  return fallback ? String(fallback).trim() : null;
+}
+
+function requireAdmin(req, res, next) {
+  cleanupExpiredSessions.run(Date.now());
+
+  const token = extractToken(req);
+  if (!token) {
+    return res.status(401).json({ error: 'No autorizado' });
+  }
+
+  const session = getAdminSessionByToken.get(token, Date.now());
+  if (!session) {
+    return res.status(401).json({ error: 'Sesión inválida o expirada' });
+  }
+
+  req.admin = {
+    id: session.admin_id,
+    email: session.email,
+    token: session.token,
+  };
+
+  return next();
 }
 
 function buildLeaderboard(poolId) {
@@ -250,7 +347,50 @@ function buildLeaderboard(poolId) {
   };
 }
 
-// API
+// Auth admin
+app.post('/api/admin/login', (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const password = String(req.body?.password || '');
+
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email y contraseña requeridos' });
+  }
+
+  const admin = getAdminByEmail.get(email);
+  if (!admin) {
+    return res.status(401).json({ error: 'Credenciales inválidas' });
+  }
+
+  const candidateHash = hashPassword(password, admin.password_salt);
+  const valid = timingSafeEqualHex(candidateHash, admin.password_hash);
+
+  if (!valid) {
+    return res.status(401).json({ error: 'Credenciales inválidas' });
+  }
+
+  cleanupExpiredSessions.run(Date.now());
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresAt = Date.now() + SESSION_TTL_MS;
+  createAdminSession.run(token, admin.id, expiresAt);
+
+  return res.json({
+    ok: true,
+    token,
+    expiresAt,
+    admin: { email: admin.email },
+  });
+});
+
+app.get('/api/admin/me', requireAdmin, (req, res) => {
+  return res.json({ ok: true, admin: { email: req.admin.email } });
+});
+
+app.post('/api/admin/logout', requireAdmin, (req, res) => {
+  deleteAdminSessionByToken.run(req.admin.token);
+  return res.json({ ok: true });
+});
+
+// API pública
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
 app.get('/api/pools', (_req, res) => {
@@ -264,30 +404,9 @@ app.get('/api/pools', (_req, res) => {
   }));
 
   res.json({
-    defaultPoolId: defaultPool.id,
+    defaultPoolId,
     pools,
   });
-});
-
-app.post('/api/pools', (req, res) => {
-  if (!isAdmin(req)) {
-    return res.status(401).json({ error: 'No autorizado' });
-  }
-
-  const name = String(req.body?.name || '').trim();
-  if (!name) {
-    return res.status(400).json({ error: 'Nombre de porra requerido' });
-  }
-
-  if (name.length > 120) {
-    return res.status(400).json({ error: 'Nombre demasiado largo' });
-  }
-
-  const slug = generateUniqueSlug(name);
-  const result = createPoolStmt.run(name, slug);
-  const pool = getPoolById.get(result.lastInsertRowid);
-
-  return res.json({ ok: true, pool });
 });
 
 app.get('/api/pools/:poolId/leaderboard', (req, res) => {
@@ -301,10 +420,7 @@ app.get('/api/pools/:poolId/leaderboard', (req, res) => {
     return res.status(404).json({ error: 'Porra no encontrada' });
   }
 
-  return res.json({
-    pool,
-    ...buildLeaderboard(poolId),
-  });
+  return res.json({ pool, ...buildLeaderboard(poolId) });
 });
 
 app.post('/api/pools/:poolId/bet', (req, res) => {
@@ -354,7 +470,68 @@ app.delete('/api/pools/:poolId/bet/:name', (req, res) => {
   return res.json({ ok: true, deleted: name });
 });
 
-app.post('/api/pools/:poolId/result', (req, res) => {
+// Admin: crear/editar/eliminar porras + resultados
+app.post('/api/pools', requireAdmin, (req, res) => {
+  const name = String(req.body?.name || '').trim();
+  if (!name) {
+    return res.status(400).json({ error: 'Nombre de porra requerido' });
+  }
+
+  if (name.length > 120) {
+    return res.status(400).json({ error: 'Nombre demasiado largo' });
+  }
+
+  const slug = generateUniqueSlug(name);
+  const result = createPoolStmt.run(name, slug);
+  const pool = getPoolById.get(result.lastInsertRowid);
+
+  return res.json({ ok: true, pool });
+});
+
+app.patch('/api/pools/:poolId', requireAdmin, (req, res) => {
+  const poolId = parsePoolId(req.params.poolId);
+  if (!poolId) {
+    return res.status(400).json({ error: 'poolId inválido' });
+  }
+
+  const pool = getPoolById.get(poolId);
+  if (!pool) {
+    return res.status(404).json({ error: 'Porra no encontrada' });
+  }
+
+  const name = String(req.body?.name || '').trim();
+  if (!name) {
+    return res.status(400).json({ error: 'Nombre requerido' });
+  }
+
+  if (name.length > 120) {
+    return res.status(400).json({ error: 'Nombre demasiado largo' });
+  }
+
+  updatePoolNameStmt.run(name, poolId);
+  return res.json({ ok: true, pool: getPoolById.get(poolId) });
+});
+
+app.delete('/api/pools/:poolId', requireAdmin, (req, res) => {
+  const poolId = parsePoolId(req.params.poolId);
+  if (!poolId) {
+    return res.status(400).json({ error: 'poolId inválido' });
+  }
+
+  if (poolId === defaultPoolId) {
+    return res.status(400).json({ error: 'No se puede borrar la porra principal' });
+  }
+
+  const pool = getPoolById.get(poolId);
+  if (!pool) {
+    return res.status(404).json({ error: 'Porra no encontrada' });
+  }
+
+  deletePoolCascadeTx(poolId);
+  return res.json({ ok: true, deletedPoolId: poolId });
+});
+
+app.post('/api/pools/:poolId/result', requireAdmin, (req, res) => {
   const poolId = parsePoolId(req.params.poolId);
   if (!poolId) {
     return res.status(400).json({ error: 'poolId inválido' });
@@ -362,10 +539,6 @@ app.post('/api/pools/:poolId/result', (req, res) => {
 
   if (!getPoolById.get(poolId)) {
     return res.status(404).json({ error: 'Porra no encontrada' });
-  }
-
-  if (!isAdmin(req)) {
-    return res.status(401).json({ error: 'No autorizado' });
   }
 
   const realCount = Number(req.body?.realCount);
@@ -377,8 +550,8 @@ app.post('/api/pools/:poolId/result', (req, res) => {
   return res.json({ ok: true });
 });
 
-// Endpoints legacy apuntando a la porra por defecto
-app.get('/api/leaderboard', (_req, res) => res.json(buildLeaderboard(defaultPool.id)));
+// Legacy para no romper flujos existentes: apuntan a la porra principal
+app.get('/api/leaderboard', (_req, res) => res.json(buildLeaderboard(defaultPoolId)));
 
 app.post('/api/bet', (req, res) => {
   const name = String(req.body?.name || '').trim();
@@ -390,7 +563,7 @@ app.post('/api/bet', (req, res) => {
 
   createUser.run(name);
   const user = getUser.get(name);
-  upsertPoolBet.run(defaultPool.id, user.id, predictedCount);
+  upsertPoolBet.run(defaultPoolId, user.id, predictedCount);
 
   return res.json({ ok: true });
 });
@@ -401,7 +574,7 @@ app.delete('/api/bet/:name', (req, res) => {
     return res.status(400).json({ error: 'Nombre inválido' });
   }
 
-  const result = deletePoolBetByUserName.run(defaultPool.id, name);
+  const result = deletePoolBetByUserName.run(defaultPoolId, name);
   if (!result.changes) {
     return res.status(404).json({ error: 'No se encontró apuesta para ese nombre' });
   }
@@ -409,17 +582,13 @@ app.delete('/api/bet/:name', (req, res) => {
   return res.json({ ok: true, deleted: name });
 });
 
-app.post('/api/result', (req, res) => {
-  if (!isAdmin(req)) {
-    return res.status(401).json({ error: 'No autorizado' });
-  }
-
+app.post('/api/result', requireAdmin, (req, res) => {
   const realCount = Number(req.body?.realCount);
   if (Number.isNaN(realCount)) {
     return res.status(400).json({ error: 'Dato inválido' });
   }
 
-  upsertPoolResult.run(defaultPool.id, realCount);
+  upsertPoolResult.run(defaultPoolId, realCount);
   return res.json({ ok: true });
 });
 

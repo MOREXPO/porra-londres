@@ -11,22 +11,16 @@
     <main class="container">
       <header>
         <h1 id="poolTitle">Porras</h1>
-        <p id="poolSubtitle">Gestiona varias porras, cada una con sus apuestas y gráficos.</p>
+        <p>Gestiona varias porras, cada una con sus apuestas, gráfico y podio.</p>
       </header>
 
       <section class="card">
-        <h2>Administrar porras</h2>
+        <h2>Porras disponibles</h2>
         <div class="pool-row">
           <label for="poolSelect">Porra activa</label>
           <select id="poolSelect"></select>
           <button id="reloadPoolsBtn" type="button">Recargar</button>
         </div>
-
-        <form id="createPoolForm" class="pool-create-form">
-          <input id="newPoolName" placeholder="Nombre nueva porra" required maxlength="120" />
-          <input id="createPoolAdminKey" type="password" placeholder="Clave admin" required />
-          <button type="submit">Crear porra</button>
-        </form>
         <p id="poolStatus" class="muted"></p>
       </section>
 
@@ -55,19 +49,51 @@
 
         <div id="tab-podio" class="tab-panel">
           <h2>Podio visual</h2>
-
-          <div class="card admin-card">
-            <h3>Publicar resultado real (porra activa)</h3>
-            <form id="resultForm" class="result-form">
-              <input id="realCount" type="number" min="0" placeholder="Resultado real" required />
-              <input id="adminKey" type="password" placeholder="Clave admin" required />
-              <button type="submit">Guardar resultado</button>
-            </form>
-            <p id="resultStatus" class="muted"></p>
-          </div>
-
           <p id="podioHint" class="muted"></p>
           <div id="podium" class="podium"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Vista de administrador</h2>
+
+        <div id="adminLoginBox">
+          <form id="adminLoginForm" class="admin-login-form">
+            <input id="adminEmail" type="email" placeholder="Email administrador" required />
+            <input id="adminPassword" type="password" placeholder="Contraseña" required />
+            <button type="submit">Entrar como administrador</button>
+          </form>
+          <p id="adminLoginStatus" class="muted"></p>
+        </div>
+
+        <div id="adminPanel" class="hidden">
+          <div class="admin-head">
+            <p>Sesión iniciada como <b id="adminWho"></b></p>
+            <button id="adminLogoutBtn" type="button" class="mini-btn">Cerrar sesión</button>
+          </div>
+
+          <div class="admin-grid">
+            <form id="createPoolForm">
+              <h3>Crear porra</h3>
+              <input id="newPoolName" placeholder="Nombre de la nueva porra" required maxlength="120" />
+              <button type="submit">Crear</button>
+            </form>
+
+            <form id="editPoolForm">
+              <h3>Editar porra activa</h3>
+              <input id="editPoolName" placeholder="Nuevo nombre de la porra activa" required maxlength="120" />
+              <button type="submit">Guardar nombre</button>
+              <button id="deletePoolBtn" class="danger-btn" type="button">Eliminar porra activa</button>
+            </form>
+
+            <form id="resultForm">
+              <h3>Publicar resultado real</h3>
+              <input id="realCount" type="number" min="0" placeholder="Resultado real" required />
+              <button type="submit">Guardar resultado</button>
+            </form>
+          </div>
+
+          <p id="adminStatus" class="muted"></p>
         </div>
       </section>
     </main>
