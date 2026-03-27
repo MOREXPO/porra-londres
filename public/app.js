@@ -4,6 +4,7 @@ const boardEl = document.getElementById('leaderboard');
 const chartEl = document.getElementById('chart');
 const podiumEl = document.getElementById('podium');
 const podioHintEl = document.getElementById('podioHint');
+const betSubmitBtn = betForm.querySelector('button[type="submit"]');
 
 const tabButtons = document.querySelectorAll('.tab-btn');
 const tabPanels = {
@@ -100,13 +101,35 @@ async function loadBoard() {
           (e) => `
             <div class="entry">
               <span>${e.user}</span>
-              <span>${e.prediction} veces · €${Number(e.euros).toFixed(2)} ${e.error === null ? '' : `(error: ${e.error})`}</span>
+              <span class="entry-main">
+                <span>${e.prediction} veces · €${Number(e.euros).toFixed(2)} ${e.error === null ? '' : `(error: ${e.error})`}</span>
+                <button
+                  class="mini-btn edit-bet-btn"
+                  data-user="${e.user}"
+                  data-prediction="${e.prediction}"
+                  data-euros="${Number(e.euros)}"
+                  type="button"
+                >
+                  Editar
+                </button>
+              </span>
             </div>
           `
         )
         .join('')}
     </div>
   `;
+
+  boardEl.querySelectorAll('.edit-bet-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.getElementById('name').value = btn.dataset.user;
+      document.getElementById('count').value = btn.dataset.prediction;
+      document.getElementById('euros').value = btn.dataset.euros;
+      betSubmitBtn.textContent = 'Actualizar apuesta';
+      statusEl.textContent = `✏️ Editando apuesta de ${btn.dataset.user}`;
+      document.getElementById('euros').focus();
+    });
+  });
 
   renderChart(data.entries);
   renderPodium(data.entries, data.result);
@@ -132,6 +155,7 @@ betForm.addEventListener('submit', async (e) => {
 
   statusEl.textContent = '✅ Apuesta guardada.';
   betForm.reset();
+  betSubmitBtn.textContent = 'Guardar apuesta';
   await loadBoard();
 });
 
